@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chess — 國際象棋</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+  <div id="game-screen" class="game-screen">
+    <header>
+      <h1>♟ CHESS ♟</h1>
+      <div class="header-tags">
+        <span id="mode-badge" class="mode-badge"></span>
+      </div>
+    </header>
+
+    <div class="game-layout">
+
+      <!-- Left panel -->
+      <aside class="side-panel left-panel">
+
+        <div class="panel-box">
+          <h3>回合</h3>
+          <div class="turn-display">
+            <div class="turn-dot white" id="turn-dot"></div>
+            <span id="turn-label">白方回合</span>
+          </div>
+          <div id="ai-thinking" class="ai-thinking" style="display:none;">
+            <span class="think-dot"></span><span class="think-dot"></span><span class="think-dot"></span>
+            <span style="margin-left:6px;font-size:0.75rem;color:var(--text-dim);">AI 思考中</span>
+          </div>
+        </div>
+
+        <!-- Mode switcher -->
+        <div class="panel-box mode-switcher-box">
+          <h3>遊戲模式</h3>
+          <div class="mode-toggle-row">
+            <button class="mode-toggle-btn active" id="toggle-ai">🤖 AI 對戰</button>
+            <button class="mode-toggle-btn" id="toggle-pvp">👥 雙人</button>
+          </div>
+
+          <!-- AI sub-settings -->
+          <div id="ai-settings">
+            <p class="setting-label">執棋顏色</p>
+            <div class="color-toggle-row">
+              <button class="color-toggle active" id="color-white">
+                <div class="color-dot white-dot"></div>白
+              </button>
+              <button class="color-toggle" id="color-black">
+                <div class="color-dot black-dot"></div>黑
+              </button>
+              <button class="color-toggle" id="color-random">🎲</button>
+            </div>
+            <p class="setting-label" style="margin-top:10px;">AI 難度</p>
+            <div class="diff-row">
+              <button class="diff-btn active" data-depth="4">初級</button>
+              <button class="diff-btn" data-depth="8">中級</button>
+              <button class="diff-btn" data-depth="14">高級</button>
+              <button class="diff-btn" data-depth="20">大師</button>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="panel-box">
+          <h3>被吃棋子</h3>
+          <p class="cap-label">黑方損失</p>
+          <div class="captured-row" id="captured-black"></div>
+          <p class="cap-label" style="margin-top:6px;">白方損失</p>
+          <div class="captured-row" id="captured-white"></div>
+        </div>
+
+        <div class="panel-box">
+          <button class="btn" id="btn-new">新局</button>
+          <button class="btn" id="btn-undo">悔棋 ↩</button>
+          <button class="btn danger" id="btn-resign">投降</button>
+        </div>
+
+
+      </aside>
+
+      <!-- Board + Chat column -->
+      <div class="board-col">
+
+        <!-- AI Chat above board -->
+        <div class="panel-box ai-chat-box" id="ai-chat-above">
+          <h3>💬 AI 棋評助手</h3>
+          <div class="chat-messages" id="chat-messages">
+            <div class="chat-msg ai">
+              <div class="chat-bubble">你好！可以問我走法建議、規則，或分析局面。</div>
+            </div>
+          </div>
+          <div class="chat-input-row">
+            <input type="text" id="chat-input" placeholder="問我任何問題..." autocomplete="off"/>
+            <button id="chat-send" title="送出">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+      <!-- Board -->
+      <main class="board-wrap">
+        <div class="player-label" id="label-top">
+          <div class="player-dot black-dot" id="dot-top"></div>
+          <span id="name-top">Stockfish AI（黑方）</span>
+        </div>
+        <div class="board-outer">
+          <div class="board-with-coords">
+            <div class="coords-rank">
+              <span class="coord-label">8</span><span class="coord-label">7</span>
+              <span class="coord-label">6</span><span class="coord-label">5</span>
+              <span class="coord-label">4</span><span class="coord-label">3</span>
+              <span class="coord-label">2</span><span class="coord-label">1</span>
+            </div>
+            <div>
+              <div id="chess-board"></div>
+              <div class="coords-file" style="padding-top:4px;">
+                <span class="coord-label">a</span><span class="coord-label">b</span>
+                <span class="coord-label">c</span><span class="coord-label">d</span>
+                <span class="coord-label">e</span><span class="coord-label">f</span>
+                <span class="coord-label">g</span><span class="coord-label">h</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="player-label" id="label-bottom">
+          <div class="player-dot white-dot" id="dot-bottom"></div>
+          <span id="name-bottom">玩家（白方）</span>
+        </div>
+        <!-- Replay banner -->
+        <div id="replay-banner" class="replay-banner" style="display:none;">
+          <span class="replay-icon">⏪</span>
+          <span id="replay-step" class="replay-step"></span>
+          <button id="btn-replay-exit" class="replay-exit-btn">回到當前局面 →</button>
+        </div>
+      </main>
+
+      </div><!-- .board-col -->
+
+      <!-- Right panel -->
+      <aside class="side-panel right-panel">
+        <div class="panel-box history-box">
+          <h3>棋譜</h3>
+          <div id="move-history"></div>
+        </div>
+        <div class="panel-box sf-panel" id="sf-panel" style="display:none;">
+          <h3>📊 Stockfish 評估</h3>
+          <div class="sf-eval-row">
+            <span class="sf-label">局面評估</span>
+            <span id="sf-eval" class="sf-eval">—</span>
+          </div>
+          <div id="sf-status" class="sf-status"></div>
+        </div>
+
+        <!-- Save / Load -->
+        <div class="panel-box save-box">
+          <h3>💾 儲存棋局</h3>
+          <div class="save-input-row">
+            <input type="text" id="save-name" placeholder="棋局名稱（可留空）" maxlength="40"/>
+            <button class="btn save-btn" id="btn-save">儲存</button>
+          </div>
+          <div id="save-msg" class="save-msg"></div>
+        </div>
+
+        <div class="panel-box load-box">
+          <h3>📂 讀取棋局</h3>
+          <button class="btn load-refresh-btn" id="btn-refresh-list">重新整理</button>
+          <div id="saved-list" class="saved-list">
+            <p class="no-saves">尚無儲存棋局</p>
+          </div>
+        </div>
+      </aside>
+
+    </div>
+  </div>
+
+  <!-- Promotion modal -->
+  <div id="promotion-modal">
+    <div class="promotion-box">
+      <h2>選擇升變棋子</h2>
+      <div class="promo-choices" id="promo-choices"></div>
+    </div>
+  </div>
+
+  <!-- Game over overlay -->
+  <div id="gameover-overlay">
+    <div class="gameover-box">
+      <h2 id="gameover-title">遊戲結束</h2>
+      <p id="gameover-msg"></p>
+      <button class="btn" id="btn-play-again" style="width:auto;padding:10px 32px;">再玩一局</button>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/chess.js') }}"></script>
+</body>
+</html>
