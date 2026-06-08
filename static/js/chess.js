@@ -48,16 +48,16 @@ const chatInput       = document.getElementById('chat-input');
 const chatSend        = document.getElementById('chat-send');
 const promoModal      = document.getElementById('promotion-modal');
 const promoChoices    = document.getElementById('promo-choices');
-const modeBadge       = document.getElementById('mode-badge');
+const modeBadge       = null; // removed
 const sfPanel         = document.getElementById('sf-panel');
 const sfEval          = document.getElementById('sf-eval');
 const sfStatus        = document.getElementById('sf-status');
-const labelTop        = document.getElementById('label-top');
-const labelBottom     = document.getElementById('label-bottom');
-const dotTop          = document.getElementById('dot-top');
-const dotBottom       = document.getElementById('dot-bottom');
-const nameTop         = document.getElementById('name-top');
-const nameBottom      = document.getElementById('name-bottom');
+const labelTop        = null; // removed
+const labelBottom     = null; // removed
+const dotTop          = null; // removed
+const dotBottom       = null; // removed
+const nameTop         = null; // removed
+const nameBottom      = null; // removed
 const aiSettings      = document.getElementById('ai-settings');
 const replayBanner    = document.getElementById('replay-banner');
 const replayStepLabel = document.getElementById('replay-step');
@@ -72,9 +72,20 @@ document.addEventListener('DOMContentLoaded', () => {
   setupChat();
   applyConfig();
   startNewGame();
-  // Replay banner button
   document.getElementById('btn-replay-exit').addEventListener('click', exitReplay);
+  matchPanelHeights();
+  window.addEventListener('resize', matchPanelHeights);
 });
+
+function matchPanelHeights() {
+  const boardCol   = document.querySelector('.board-col');
+  const leftPanel  = document.querySelector('.left-panel');
+  const rightPanel = document.querySelector('.right-panel');
+  if (!boardCol || !leftPanel || !rightPanel) return;
+  const h = boardCol.offsetHeight + 'px';
+  leftPanel.style.height  = h;
+  rightPanel.style.height = h;
+}
 
 // ══════════════════════════════════════════════════════════════════════════
 //  MODE SWITCHER
@@ -126,20 +137,7 @@ function setupModeSwitcher() {
 }
 
 function applyConfigUI() {
-  modeBadge.textContent = config.mode === 'pvp'
-    ? '雙人對戰'
-    : `AI 對戰 · 執${config.playerColor === 'white' ? '白' : '黑'}`;
   if (sfPanel) sfPanel.style.display = config.mode === 'ai' ? 'block' : 'none';
-  if (config.mode === 'pvp') {
-    nameTop.textContent = '黑方'; nameBottom.textContent = '白方';
-    dotTop.className = 'player-dot black-dot'; dotBottom.className = 'player-dot white-dot';
-  } else if (config.playerColor === 'white') {
-    nameTop.textContent = 'Stockfish AI（黑方）'; nameBottom.textContent = '玩家（白方）';
-    dotTop.className = 'player-dot black-dot'; dotBottom.className = 'player-dot white-dot';
-  } else {
-    nameTop.textContent = '玩家（黑方）'; nameBottom.textContent = 'Stockfish AI（白方）';
-    dotTop.className = 'player-dot black-dot'; dotBottom.className = 'player-dot white-dot';
-  }
 }
 
 function applyConfig() {
@@ -230,11 +228,6 @@ function renderBoard() {
   // Turn indicator always reflects live state
   turnDot.className = `turn-dot ${state.turn}`;
   turnLabel.textContent = state.turn === 'white' ? '白方回合' : '黑方回合';
-  if (state.turn === 'black') {
-    labelTop.classList.add('active-turn'); labelBottom.classList.remove('active-turn');
-  } else {
-    labelBottom.classList.add('active-turn'); labelTop.classList.remove('active-turn');
-  }
 }
 
 // Generic render (used for both live and replay)

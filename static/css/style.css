@@ -24,9 +24,9 @@ body {
   background: var(--bg-deep);
   color: var(--text-primary);
   font-family: 'Crimson Pro', Georgia, serif;
-  min-height: 100vh;
-  display: flex; flex-direction: column; align-items: center;
-  padding: 20px 12px 48px;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
   background-image: radial-gradient(ellipse 70% 40% at 50% 0%, rgba(60,50,100,0.18), transparent);
 }
 
@@ -273,21 +273,104 @@ header p { font-size: 0.88rem; color: var(--text-dim); letter-spacing: 0.1em; fo
 }
 
 /* ═══════════════════════════════════════════════
-   GAME SCREEN
+   GAME SCREEN — 100vh, 3-column centered
 ═══════════════════════════════════════════════ */
-.game-screen { display: flex; flex-direction: column; align-items: center; width: 100%; padding: 20px 12px 48px; }
-header { text-align: center; margin-bottom: 4px; }
-header h1 {
-  font-family: 'Cinzel', serif;
-  font-size: clamp(1.4rem, 3.5vw, 2.1rem);
-  font-weight: 700; letter-spacing: 0.2em;
-  color: var(--gold); text-shadow: 0 0 40px rgba(201,168,76,0.3);
+.game-screen {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
-.header-tags { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 5px; margin-bottom: 14px; }
-.mode-badge {
-  font-family: 'Cinzel', serif; font-size: 0.65rem; letter-spacing: 0.15em;
-  color: var(--gold-dim); border: 1px solid var(--gold-dim);
-  border-radius: 20px; padding: 3px 10px; text-transform: uppercase;
+
+.game-layout {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;    /* 靠上對齊，高度由 JS 控制 */
+  justify-content: center;
+  gap: 0;
+}
+
+/* ── 左欄 ── */
+.left-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 200px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-glow) transparent;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-right: none;
+  border-radius: 12px 0 0 12px;
+  padding: 10px;
+  /* height set by JS to match board-col */
+}
+
+/* ── 中欄：棋盤，高度由內容決定 ── */
+.board-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 6px;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 8px;
+}
+
+/* ── 右欄 ── */
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-glow) transparent;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: none;
+  border-radius: 0 12px 12px 0;
+  padding: 10px;
+  /* height set by JS to match board-col */
+}
+
+/* AI chat 撐滿右欄，輸入框貼底 */
+#ai-chat-above {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+#ai-chat-above .chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.chat-input-row {
+  margin-top: auto;
+  padding-top: 8px;
+  flex-shrink: 0;
+}
+
+/* panel-box 在左右欄內不需要自己的 border/bg，由欄本身提供 */
+.left-panel  > .panel-box,
+.right-panel > .panel-box {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 10px 2px;
+}
+.left-panel  > .panel-box:last-child,
+.right-panel > .panel-box:last-child {
+  border-bottom: none;
 }
 
 /* ── Inline mode switcher ── */
@@ -375,7 +458,7 @@ header h1 {
 .save-msg.err { color: #e05050; }
 
 .load-refresh-btn { margin-bottom: 8px !important; font-size: 0.68rem !important; }
-.saved-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border-glow) transparent; }
+.saved-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border-glow) transparent; }
 .no-saves { font-size: 0.78rem; color: var(--text-dim); font-style: italic; }
 
 .save-entry {
@@ -434,35 +517,3 @@ header h1 {
   cursor: pointer; transition: all 0.18s; white-space: nowrap;
 }
 .replay-exit-btn:hover { background: rgba(201,168,76,0.28); border-color: var(--gold); }
-
-/* ── Board column (chat + board stacked) ── */
-.board-col {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-/* AI chat above board — match board outer width */
-#ai-chat-above {
-  /* board-outer = 512px grid + 6px padding*2 + 3px border*2 + 14px coords rank = ~544px total */
-  width: 544px;
-  display: flex;
-  flex-direction: column;
-  /* stretch to match side panel height via min-height */
-  min-height: 160px;
-}
-#ai-chat-above .chat-messages {
-  flex: 1;
-  min-height: 80px;
-  max-height: 200px;
-}
-
-/* Make left/right panels stretch to match the full column height */
-.game-layout {
-  align-items: stretch;
-}
-.side-panel {
-  /* panels fill the height of the tallest column */
-  align-self: stretch;
-}
