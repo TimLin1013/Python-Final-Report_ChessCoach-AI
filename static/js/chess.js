@@ -72,7 +72,15 @@ document.addEventListener('DOMContentLoaded', () => {
   setupChat();
   applyConfig();
   startNewGame();
-  document.getElementById('btn-replay-exit').addEventListener('click', exitReplay);
+  // replay banner has no buttons; clicking pieces exits replay automatically
+  document.getElementById('btn-replay-prev').addEventListener('click', () => {
+    const current = state.replayIndex !== null ? state.replayIndex : state.fenHistory.length - 1;
+    enterReplay(current - 1);
+  });
+  document.getElementById('btn-replay-next').addEventListener('click', () => {
+    if (state.replayIndex === null) return; // already at latest
+    enterReplay(state.replayIndex + 1);
+  });
   matchPanelHeights();
   window.addEventListener('resize', matchPanelHeights);
 });
@@ -178,31 +186,98 @@ function fenToPieces(fen) {
 
 // Enter replay mode at a specific half-move index
 function enterReplay(halfMoveIndex) {
+  const total = state.fenHistory.length - 1;
+  halfMoveIndex = Math.max(0, Math.min(halfMoveIndex, total));
+
+  // Reached live position → exit replay
+  if (halfMoveIndex === total) {
+    exitReplay();
+    return;
+  }
+
   state.replayIndex = halfMoveIndex;
+  state.selected    = null;
+  state.legalMoves  = [];
   const fen = state.fenHistory[halfMoveIndex];
   if (!fen) return;
 
-  const previewPieces = fenToPieces(fen);
-  const fenParts = fen.split(' ');
-  const previewTurn = fenParts[1] === 'w' ? 'white' : 'black';
+  // Update state.pieces and state.turn to reflect replay position
+  state.pieces = fenToPieces(fen);
+  state.turn   = fen.split(' ')[1] === 'w' ? 'white' : 'black';
 
-  // Render board with preview pieces (no selection, no legal moves)
-  renderBoardFromPieces(previewPieces, previewTurn, null, null);
+  // 更新 lastMove 為該步驟的移動（看前一個 FEN 的差異）
+  state.lastMove = getLastMoveFromHistory(halfMoveIndex);
 
-  // Show banner
-  const totalHalf = state.fenHistory.length - 1;
-  const moveNum = halfMoveIndex === 0 ? '開局' : `第 ${Math.ceil(halfMoveIndex / 2)} 回合 · ${halfMoveIndex % 2 === 1 ? '白' : '黑'}方走後`;
-  replayStepLabel.textContent = `${moveNum}（${halfMoveIndex} / ${totalHalf}）`;
-  replayBanner.style.display = 'flex';
-
-  renderHistory(); // re-render to highlight active step
+  renderBoard();
+  updateReplayButtons();
+  renderHistory();
 }
 
 function exitReplay() {
   state.replayIndex = null;
-  replayBanner.style.display = 'none';
-  renderBoard();       // restore live board
-  renderHistory();     // remove highlight
+  state.selected    = null;
+  state.legalMoves  = [];
+  // Restore live pieces and turn
+  const liveFen  = state.fenHistory[state.fenHistory.length - 1] || state.fen;
+  state.pieces   = fenToPieces(liveFen);
+  state.turn     = liveFen.split(' ')[1] === 'w' ? 'white' : 'black';
+  state.lastMove = getLastMoveFromHistory(state.fenHistory.length - 1);
+  renderBoard();
+  updateReplayButtons();
+  renderHistory();
+}
+
+function updateReplayButtons() {
+  const total   = state.fenHistory.length - 1;
+  const idx     = state.replayIndex;          // null = live (latest)
+  const current = idx !== null ? idx : total;
+  const prevBtn = document.getElementById('btn-replay-prev');
+  const nextBtn = document.getElementById('btn-replay-next');
+  if (prevBtn) prevBtn.disabled = current <= 0;
+  if (nextBtn) nextBtn.disabled = idx === null; // at live = no next
+}
+
+async function branchFromReplay() {
+  const idx = state.replayIndex;
+  if (idx === null) return;
+  const fen = state.fenHistory[idx];
+  if (!fen) { console.error('No FEN at index', idx); return; }
+
+  const res = await fetch('/api/branch', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ game_id: state.gameId, fen })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error('branch failed:', err);
+    return;
+  }
+  const data = await res.json();
+
+  // 裁切 fenHistory 到該步
+  state.fenHistory = state.fenHistory.slice(0, idx + 1);
+
+  // 裁切 movePairs
+  const fullPairs  = Math.floor(idx / 2);
+  const hasPartial = idx % 2 === 1;
+  state.movePairs  = state.movePairs.slice(0, fullPairs + (hasPartial ? 1 : 0));
+  if (hasPartial && state.movePairs.length > 0) {
+    state.movePairs[state.movePairs.length - 1].black = '';
+  }
+
+  state.pieces      = data.pieces;
+  state.turn        = data.turn;
+  state.status      = data.status;
+  state.fen         = fen;
+  state.lastMove    = null;
+  state.selected    = null;
+  state.legalMoves  = [];
+  state.replayIndex = null;
+
+  renderBoard(); renderCaptured(); renderHistory();
+  matchPanelHeights();
+
+  if (config.mode === 'ai' && state.turn !== config.playerColor) await triggerAiMove();
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -301,8 +376,10 @@ function renderHistory() {
 }
 
 function renderCaptured() {
-  capBlackEl.innerHTML = state.capturedBlack.map(t=>`<span class="cap-piece black-cap">${CAP_SYM_BLACK[t]||'?'}</span>`).join('');
-  capWhiteEl.innerHTML = state.capturedWhite.map(t=>`<span class="cap-piece white-cap">${CAP_SYM_WHITE[t]||'?'}</span>`).join('');
+  const order = [5, 4, 3, 2, 1]; // 后>車>象>馬>兵
+  const sort  = arr => [...arr].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  capBlackEl.innerHTML = sort(state.capturedBlack).map(t=>`<span class="cap-piece black-cap">${CAP_SYM_BLACK[t]||'?'}</span>`).join('');
+  capWhiteEl.innerHTML = sort(state.capturedWhite).map(t=>`<span class="cap-piece white-cap">${CAP_SYM_WHITE[t]||'?'}</span>`).join('');
 }
 
 function recordMove(notation, beforeTurn) {
@@ -318,8 +395,54 @@ function recordMove(notation, beforeTurn) {
 //  INTERACTION
 // ══════════════════════════════════════════════════════════════════════════
 async function onSquareClick(row, col) {
-  // In replay mode, click anywhere exits replay instead of moving
-  if (state.replayIndex !== null) { exitReplay(); return; }
+  // ── 回放模式 ──────────────────────────────────────────────
+  if (state.replayIndex !== null) {
+    const replayTurn = state.turn;
+
+    // AI 模式下只有玩家顏色可操作
+    if (config.mode === 'ai' && replayTurn !== config.playerColor) return;
+
+    const piece = state.pieces[`${row},${col}`];
+
+    // 已選棋子 → 嘗試走棋
+    if (state.selected) {
+      if (state.legalMoves.some(m => m.row === row && m.col === col)) {
+        // 真正走了新棋才 branch 並覆蓋
+        const mp = state.pieces[`${state.selected.row},${state.selected.col}`];
+        if (mp && mp.type === 1 && ((mp.color === 'white' && row === 0) || (mp.color === 'black' && row === 7))) {
+          state.pendingPromotion = {fromRow: state.selected.row, fromCol: state.selected.col, toRow: row, toCol: col};
+          showPromoModal(mp.color); return;
+        }
+        const fromRow = state.selected.row;
+        const fromCol = state.selected.col;
+        await branchFromReplay();
+        await submitMove(fromRow, fromCol, row, col);
+        return;
+      }
+      // 點了其他格子 → 取消選擇或換選棋子
+      if (piece && piece.color === replayTurn) {
+        state.selected   = {row, col};
+        state.legalMoves = await fetchReplayLegalMoves(row, col);
+        renderReplayBoard();
+        return;
+      }
+      // 點空格 → 取消選擇
+      state.selected   = null;
+      state.legalMoves = [];
+      renderReplayBoard();
+      return;
+    }
+
+    // 尚未選棋子 → 選自己的棋子並顯示可走位置
+    if (piece && piece.color === replayTurn) {
+      state.selected   = {row, col};
+      state.legalMoves = await fetchReplayLegalMoves(row, col);
+      renderReplayBoard();
+    }
+    return;
+  }
+
+  // ── 一般模式 ──────────────────────────────────────────────
   if (['checkmate','stalemate','draw','idle'].includes(state.status)) return;
   if (state.aiThinking) return;
   if (config.mode === 'ai' && state.turn !== config.playerColor) return;
@@ -345,7 +468,24 @@ async function onSquareClick(row, col) {
   renderBoard();
 }
 
-// ── Promotion ──────────────────────────────────────────────────────────────
+async function fetchReplayLegalMoves(row, col) {
+  // 用回放局面的 game_id（branch 前先建立暫時棋盤）
+  // 簡化做法：直接用當前 game_id 查詢，但棋盤已是回放 FEN 的 pieces
+  // 因為 /api/get_moves 是查後端 board，需要先 branch 才能查
+  // 所以這裡改呼叫 /api/replay_moves
+  const res = await fetch('/api/replay_moves', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ fen: state.fenHistory[state.replayIndex], row, col })
+  });
+  const data = await res.json();
+  return data.moves || [];
+}
+
+function renderReplayBoard() {
+  renderBoard();
+}
+
+
 function buildPromoButtons() {
   promoChoices.innerHTML = '';
   [{sym:'♛',key:'q'},{sym:'♜',key:'r'},{sym:'♝',key:'b'},{sym:'♞',key:'n'}].forEach(({sym,key}) => {
@@ -392,6 +532,7 @@ async function startNewGame() {
   if (aiThinkingEl) aiThinkingEl.style.display = 'none';
   gameoverOverlay.classList.remove('active');
   renderBoard(); renderCaptured(); renderHistory();
+  matchPanelHeights();
   if (config.mode==='ai' && config.playerColor==='black') await triggerAiMove();
 }
 
@@ -432,6 +573,7 @@ async function submitMove(fromRow,fromCol,toRow,toCol,promotion='q') {
   state.selected=null; state.legalMoves=[];
 
   renderBoard(); renderCaptured(); renderHistory();
+  updateReplayButtons();
   if (['checkmate','stalemate','draw'].includes(data.status)) { showGameOver(data); return; }
   if (config.mode==='ai' && state.turn !== config.playerColor) await triggerAiMove();
 }
@@ -468,13 +610,18 @@ async function triggerAiMove() {
   if (['checkmate','stalemate','draw'].includes(state.status)) return;
   state.aiThinking = true;
   if (aiThinkingEl) aiThinkingEl.style.display = 'flex';
+  if (sfStatus) sfStatus.textContent = 'AI 思考中...';
   await new Promise(r => setTimeout(r,300));
   try {
     const res = await fetch('/api/stockfish',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({game_id:state.gameId,depth:config.aiDepth})
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      if (sfStatus) sfStatus.textContent = `❌ ${err.error || 'Stockfish 無法執行'}`;
+      return;
+    }
     const data = await res.json();
     if (data.captured) {
       const t = SYM_TYPE_MAP[data.captured]||1;
@@ -499,6 +646,7 @@ async function triggerAiMove() {
     if (sfStatus) sfStatus.textContent = `AI 走: ${data.move_san||''}  評: ${data.evaluation||'?'}`;
 
     renderBoard(); renderCaptured(); renderHistory();
+    updateReplayButtons();
     if (['checkmate','stalemate','draw'].includes(data.status)) showGameOver(data);
   } finally {
     state.aiThinking = false;
@@ -524,13 +672,16 @@ function showGameOver(data) {
 document.getElementById('btn-new').addEventListener('click', startNewGame);
 document.getElementById('btn-undo').addEventListener('click', undoMove);
 document.getElementById('btn-resign').addEventListener('click', () => {
-  if (state.replayIndex !== null) { exitReplay(); return; }
+  if (state.replayIndex !== null) return;
   gameoverTitle.textContent = config.mode==='ai' ? 'AI 獲勝！' : `${state.turn==='white'?'白':'黑'}方投降`;
   gameoverMsg.textContent   = '投降。';
   state.status = 'checkmate';
   gameoverOverlay.classList.add('active');
 });
 document.getElementById('btn-play-again').addEventListener('click', startNewGame);
+document.getElementById('btn-close-result').addEventListener('click', () => {
+  gameoverOverlay.classList.remove('active');
+});
 
 // ── AI Chat ────────────────────────────────────────────────────────────────
 function setupChat() {
@@ -589,16 +740,28 @@ async function saveGame() {
   const name = document.getElementById('save-name').value.trim();
   const msg  = document.getElementById('save-msg');
   msg.className = 'save-msg'; msg.textContent = '儲存中...';
-  const res = await fetch('/api/save_game', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ game_id: state.gameId, name, mode: config.mode })
-  });
-  const data = await res.json();
-  if (!res.ok) { msg.className='save-msg err'; msg.textContent=data.error||'儲存失敗'; return; }
-  msg.className='save-msg'; msg.textContent=`已儲存「${data.name}」`;
-  document.getElementById('save-name').value='';
-  setTimeout(()=>{ msg.textContent=''; },3000);
-  loadGameList();
+  try {
+    const res = await fetch('/api/save_game', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ game_id: state.gameId, name, mode: config.mode })
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      msg.className = 'save-msg err';
+      msg.textContent = '儲存失敗（' + res.status + '）';
+      console.error('save_game error:', text);
+      return;
+    }
+    const data = await res.json();
+    msg.className='save-msg'; msg.textContent=`已儲存「${data.name}」`;
+    document.getElementById('save-name').value='';
+    setTimeout(()=>{ msg.textContent=''; },3000);
+    loadGameList();
+  } catch(e) {
+    msg.className = 'save-msg err';
+    msg.textContent = '儲存失敗，請稍後再試';
+    console.error(e);
+  }
 }
 
 async function loadGameList() {
@@ -612,10 +775,12 @@ async function loadGameList() {
     const entry = document.createElement('div');
     entry.className = 'save-entry';
     const resultLabels = {
-      white:['result-white','白方獲勝'], black:['result-black','黑方獲勝'],
-      stalemate:['result-draw','僵局'], draw:['result-draw','平局'], playing:['result-playing','進行中']
+      white:    ['result-white', '1-0'],
+      black:    ['result-black', '0-1'],
+      stalemate:['result-draw',  '½-½'],
+      draw:     ['result-draw',  '½-½']
     };
-    const [rClass,rLabel] = resultLabels[row.result]||['result-playing',row.result||'?'];
+    const [rClass, rLabel] = resultLabels[row.result] || ['', ''];
     const modeLabel = row.mode==='ai' ? '🤖 AI' : '👥 雙人';
     entry.innerHTML = `
       <div class="save-entry-top">
@@ -637,6 +802,39 @@ async function loadGameList() {
   });
 }
 
+function getLastMoveFromHistory(idx) {
+  if (idx <= 0) return null;
+  // idx 對應的是第 idx 個 half-move，直接從 fenHistory 前後比較格子差異
+  // 用最簡單的方式：找前一局面有但現在沒有的格子(from)，現在有但前一局面沒有的格子(to)
+  const prev = fenToPieces(state.fenHistory[idx - 1]);
+  const curr = fenToPieces(state.fenHistory[idx]);
+  let from = null, to = null;
+  for (const key of Object.keys(prev)) {
+    if (!curr[key]) { from = key; }
+  }
+  for (const key of Object.keys(curr)) {
+    if (!prev[key]) { to = key; }
+  }
+  // 若找不到 to（王車易位、吃過路兵等邊緣情況），fallback
+  if (!from || !to) return null;
+  const [fr, fc] = from.split(',').map(Number);
+  const [tr, tc] = to.split(',').map(Number);
+  return { fromRow: fr, fromCol: fc, toRow: tr, toCol: tc };
+}
+
+
+function countPieces(fen) {
+  const pieceMap = {p:1,n:2,b:3,r:4,q:5,k:6,P:1,N:2,B:3,R:4,Q:5,K:6};
+  const count = {};
+  for (const ch of fen.split(' ')[0]) {
+    if (!pieceMap[ch]) continue;
+    const color = ch === ch.toUpperCase() ? 'white' : 'black';
+    const key   = `${color}_${pieceMap[ch]}`;
+    count[key]  = (count[key] || 0) + 1;
+  }
+  return count;
+}
+
 async function loadSavedGame(id, mode) {
   const res  = await fetch(`/api/load_game/${id}`,{method:'POST'});
   if (!res.ok) return;
@@ -653,13 +851,36 @@ async function loadSavedGame(id, mode) {
     if (w) pairs.push({white:w,black:b});
   }
 
-  // Rebuild fenHistory by replaying PGN
-  const fenHist = rebuildFenHistory(data.pgn||'');
+  // Fetch full fenHistory from server
+  let fenHist = [data.fen];
+  try {
+    const fhRes = await fetch(`/api/fen_history/${id}`);
+    if (fhRes.ok) {
+      const fhData = await fhRes.json();
+      fenHist = fhData.history;
+    }
+  } catch(e) { console.error('fen_history fetch failed', e); }
+
+  // 從 fenHistory 推算被吃棋子
+  const capturedW = [], capturedB = [];
+  if (fenHist.length > 1) {
+    // 計算最終局面比初始局面少了哪些棋子
+    const initCount = countPieces(fenHist[0]);
+    const lastCount = countPieces(fenHist[fenHist.length - 1]);
+    for (const [key, cnt] of Object.entries(initCount)) {
+      const diff = cnt - (lastCount[key] || 0);
+      const [color, type] = key.split('_');
+      for (let i = 0; i < diff; i++) {
+        if (color === 'white') capturedW.push(Number(type));
+        else capturedB.push(Number(type));
+      }
+    }
+  }
 
   Object.assign(state, {
     gameId:data.game_id, pieces:data.pieces, turn:data.turn,
     status:data.status, selected:null, legalMoves:[],
-    capturedWhite:[], capturedBlack:[],
+    capturedWhite: capturedW, capturedBlack: capturedB,
     movePairs:pairs,
     lastMove: data.last_move ? {fromRow:data.last_move.fromRow,fromCol:data.last_move.fromCol,toRow:data.last_move.toRow,toCol:data.last_move.toCol} : null,
     fen:data.fen, pendingPromotion:null, aiThinking:false,
@@ -677,14 +898,12 @@ async function loadSavedGame(id, mode) {
   if (aiThinkingEl) aiThinkingEl.style.display='none';
   gameoverOverlay.classList.remove('active');
   renderBoard(); renderCaptured(); renderHistory();
+  updateReplayButtons();
   if (['checkmate','stalemate','draw'].includes(data.status)) showGameOver(data);
 }
 
 function rebuildFenHistory(pgn) {
+  // Rebuilt server-side via /api/fen_history; this is just a placeholder
   const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-  const hist = [startFen];
-  if (!pgn.trim()) return hist;
-  // We don't have chess.js on the client, so we just fill with the final FEN repeated
-  // as a fallback (replay from load works fine for new games where fenHistory is built live)
-  return hist;
+  return [startFen];
 }

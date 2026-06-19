@@ -278,6 +278,62 @@ def delete_game(game_id):
     return jsonify({'ok': True})
 
 # ── Stockfish ──────────────────────────────────────────────────────────────
+@app.route('/api/replay_moves', methods=['POST'])
+def replay_moves():
+    """Get legal moves for a piece in a given FEN (no session needed)."""
+    data = request.json
+    fen  = data.get('fen')
+    row  = data.get('row')
+    col  = data.get('col')
+    try:
+        board = chess.Board(fen)
+    except Exception:
+        return jsonify({'moves': []})
+    sq = chess.square(col, 7 - row)
+    return jsonify({'moves': get_legal_moves_list(board, sq)})
+
+@app.route('/api/branch', methods=['POST'])
+def branch():
+    """Reset current game board to a specific FEN (for replay branching)."""
+    data    = request.json
+    game_id = session.get('game_id') or data.get('game_id')
+    fen     = data.get('fen')
+    if not game_id or not fen:
+        return jsonify({'error': 'Missing game_id or fen'}), 400
+    try:
+        board = chess.Board(fen)
+    except Exception:
+        return jsonify({'error': 'Invalid FEN'}), 400
+    games[game_id] = board
+    status, winner = game_status(board)
+    return jsonify({
+        'pieces': board_to_dict(board),
+        'turn':   'white' if board.turn == chess.WHITE else 'black',
+        'status': status,
+        'winner': winner,
+        'fen':    board.fen()
+    })
+
+@app.route('/api/fen_history/<int:save_id>', methods=['GET'])
+def fen_history(save_id):
+    """Rebuild FEN history by replaying saved PGN."""
+    with get_db() as db:
+        row = db.execute('SELECT pgn FROM saved_games WHERE id=?', (save_id,)).fetchone()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    board = chess.Board()
+    history = [board.fen()]
+    for token in (row['pgn'] or '').split():
+        if '.' in token:
+            continue
+        try:
+            board.push_san(token)
+            history.append(board.fen())
+        except Exception:
+            break
+    return jsonify({'history': history})
+
+
 @app.route('/api/stockfish', methods=['POST'])
 def stockfish_move():
     if not STOCKFISH_PATH:

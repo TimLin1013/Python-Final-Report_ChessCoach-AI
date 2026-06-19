@@ -260,6 +260,7 @@ header p { font-size: 0.88rem; color: var(--text-dim); letter-spacing: 0.1em; fo
 .gameover-box { background: var(--bg-card); border: 1px solid var(--gold); border-radius: 16px; padding: 38px 52px; text-align: center; box-shadow: 0 0 60px rgba(201,168,76,0.2); }
 .gameover-box h2 { font-family: 'Cinzel', serif; font-size: 1.7rem; letter-spacing: 0.2em; color: var(--gold-light); margin-bottom: 8px; }
 .gameover-box p { color: var(--silver); margin-bottom: 22px; }
+.gameover-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 
 /* ── Responsive ── */
 @media (max-width: 920px) {
@@ -497,23 +498,21 @@ header p { font-size: 0.88rem; color: var(--text-dim); letter-spacing: 0.1em; fo
 }
 
 .replay-banner {
-  display: flex; align-items: center; gap: 10px;
-  background: rgba(201,168,76,0.1);
-  border: 1px solid var(--gold-dim);
-  border-radius: 8px;
-  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-top: 6px;
-  flex-wrap: wrap;
 }
 .replay-icon { font-size: 1rem; }
 .replay-step {
   font-family: 'Cinzel', serif; font-size: 0.72rem;
   color: var(--gold); letter-spacing: 0.06em; flex: 1;
 }
-.replay-exit-btn {
-  font-family: 'Cinzel', serif; font-size: 0.68rem; letter-spacing: 0.1em;
-  background: rgba(201,168,76,0.15); border: 1px solid var(--gold-dim);
-  border-radius: 6px; color: var(--gold-light); padding: 5px 10px;
+.replay-nav-btn {
+  font-family: 'Cinzel', serif; font-size: 0.7rem; letter-spacing: 0.1em;
+  background: rgba(201,168,76,0.12); border: 1px solid var(--gold-dim);
+  border-radius: 6px; color: var(--gold-light); padding: 5px 12px;
   cursor: pointer; transition: all 0.18s; white-space: nowrap;
 }
-.replay-exit-btn:hover { background: rgba(201,168,76,0.28); border-color: var(--gold); }
+.replay-nav-btn:hover:not(:disabled) { background: rgba(201,168,76,0.25); border-color: var(--gold); }
+.replay-nav-btn:disabled { opacity: 0.3; cursor: default; }
