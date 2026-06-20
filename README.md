@@ -19,6 +19,21 @@
 pip install -r requirements.txt
 ```
 
+## 環境設定
+
+```bash
+# 複製範本並填入金鑰
+cp .env.example .env
+```
+
+然後編輯 `.env`，填入你的 Gemini API 金鑰：
+
+```
+GEMINI_API_KEY=你的金鑰
+```
+
+金鑰取得：[https://aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+
 ## 目錄結構
 
 ```
