@@ -145,6 +145,7 @@ function setupModeSwitcher() {
 
 function applyConfigUI() {
   if (sfPanel) sfPanel.style.display = config.mode === 'ai' ? 'block' : 'none';
+  applyBoardFlip();
 }
 
 function applyConfig() {
@@ -324,6 +325,14 @@ function buildBoard() {
       sq.addEventListener('click', () => onSquareClick(r, c));
       boardEl.appendChild(sq);
     }
+  }
+}
+
+function applyBoardFlip() {
+  const flipped = config.mode === 'ai' && config.playerColor === 'black';
+  const boardWrap = document.querySelector('.board-with-coords');
+  if (boardWrap) {
+    boardWrap.classList.toggle('flipped', flipped);
   }
 }
 const getSquareEl = (r, c) => boardEl.querySelector(`[data-row="${r}"][data-col="${c}"]`);

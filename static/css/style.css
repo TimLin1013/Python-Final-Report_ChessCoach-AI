@@ -523,3 +523,17 @@ header p { font-size: 0.88rem; color: var(--text-dim); letter-spacing: 0.1em; fo
 }
 .replay-nav-btn:hover:not(:disabled) { background: rgba(201,168,76,0.25); border-color: var(--gold); }
 .replay-nav-btn:disabled { opacity: 0.3; cursor: default; }
+
+
+
+
+/* ── 棋盤翻轉（執黑時） ── */
+.board-with-coords.flipped {
+  transform: rotate(180deg);
+}
+.board-with-coords.flipped .square {
+  transform: rotate(180deg);
+}
+.board-with-coords.flipped .coord-label {
+  transform: rotate(180deg);
+}
