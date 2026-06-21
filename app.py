@@ -5,7 +5,11 @@ import uuid
 import os
 import sqlite3
 import json
+import requests
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = 'chess_secret_key_2024'
@@ -108,10 +112,11 @@ def index():
 @app.route('/api/new_game', methods=['POST'])
 def new_game():
     game_id = str(uuid.uuid4())
-    games[game_id] = chess.Board()
+    board   = chess.Board()
+    games[game_id] = board
     session['game_id'] = game_id
-    return jsonify({'game_id': game_id, 'pieces': board_to_dict(games[game_id]),
-                    'turn': 'white', 'status': 'playing'})
+    return jsonify({'game_id': game_id, 'pieces': board_to_dict(board),
+                    'turn': 'white', 'status': 'playing', 'fen': board.fen()})
 
 @app.route('/api/get_moves', methods=['POST'])
 def get_moves():
@@ -194,8 +199,9 @@ def reset_game():
     game_id = session.get('game_id')
     if not game_id or game_id not in games:
         return jsonify({'error': 'No game found'}), 404
-    games[game_id] = chess.Board()
-    return jsonify({'pieces': board_to_dict(games[game_id]), 'turn': 'white', 'status': 'playing'})
+    board = chess.Board()
+    games[game_id] = board
+    return jsonify({'pieces': board_to_dict(board), 'turn': 'white', 'status': 'playing', 'fen': board.fen()})
 
 # ── Save / Load ────────────────────────────────────────────────────────────
 @app.route('/api/save_game', methods=['POST'])
@@ -278,6 +284,20 @@ def delete_game(game_id):
     return jsonify({'ok': True})
 
 # ── Stockfish ──────────────────────────────────────────────────────────────
+@app.route('/api/fen_status', methods=['POST'])
+def fen_status():
+    fen = request.json.get('fen')
+    print(f'fen_status received: {repr(fen)}')
+    try:
+        board = chess.Board(fen)
+    except Exception:
+        return jsonify({'error': 'Invalid FEN'}), 400
+    status, winner = game_status(board)
+    return jsonify({
+        'status': status,
+        'turn':   'white' if board.turn == chess.WHITE else 'black'
+    })
+
 @app.route('/api/replay_moves', methods=['POST'])
 def replay_moves():
     """Get legal moves for a piece in a given FEN (no session needed)."""
@@ -294,16 +314,27 @@ def replay_moves():
 
 @app.route('/api/branch', methods=['POST'])
 def branch():
-    """Reset current game board to a specific FEN (for replay branching)."""
-    data    = request.json
-    game_id = session.get('game_id') or data.get('game_id')
-    fen     = data.get('fen')
+    data     = request.json
+    game_id  = session.get('game_id') or data.get('game_id')
+    fen      = data.get('fen')
+    fen_hist = data.get('fen_history', [])
     if not game_id or not fen:
         return jsonify({'error': 'Missing game_id or fen'}), 400
     try:
-        board = chess.Board(fen)
-    except Exception:
-        return jsonify({'error': 'Invalid FEN'}), 400
+        if len(fen_hist) > 1:
+            board = chess.Board()
+            for i in range(1, len(fen_hist)):
+                prev = chess.Board(fen_hist[i - 1])
+                move = _find_move(prev, chess.Board(fen_hist[i]))
+                if move:
+                    board.push(move)
+                else:
+                    board = chess.Board(fen)
+                    break
+        else:
+            board = chess.Board(fen)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
     games[game_id] = board
     status, winner = game_status(board)
     return jsonify({
@@ -313,6 +344,15 @@ def branch():
         'winner': winner,
         'fen':    board.fen()
     })
+
+def _find_move(prev_board, curr_board):
+    target = curr_board.fen().split(' ')[0]
+    for move in prev_board.legal_moves:
+        test = prev_board.copy()
+        test.push(move)
+        if test.fen().split(' ')[0] == target:
+            return move
+    return None
 
 @app.route('/api/fen_history/<int:save_id>', methods=['GET'])
 def fen_history(save_id):
@@ -380,6 +420,66 @@ def stockfish_move():
         'move_san':   f"{files[fc]}{ranks[fr]}{files[tc]}{ranks[tr]}",
         'evaluation': eval_str
     })
+
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    GEMINI_KEY = os.environ.get('GEMINI_API_KEY')
+    if not GEMINI_KEY:
+        return jsonify({'error': '未設定 GEMINI_API_KEY'}), 503
+
+    data    = request.json
+    message = data.get('message', '').strip()
+    fen     = data.get('fen', '')
+    pgn     = data.get('pgn', '')
+    mode    = data.get('mode', 'pvp')
+
+    if not message:
+        return jsonify({'error': '訊息不可為空'}), 400
+
+    board_ctx = f'\n當前局面（FEN）：{fen}' if fen else ''
+    pgn_ctx   = f'\n棋譜：{pgn}'            if pgn else ''
+    mode_ctx  = '對戰 Stockfish AI' if mode == 'ai' else '雙人對戰'
+
+    system_prompt = (
+        f'你是一位國際象棋助手，使用繁體中文回答。'
+        f'遊戲模式：{mode_ctx}。'
+        f'職責：走法建議、規則說明、局面分析、戰略評論。'
+        f'回答簡潔，3-5句為主。'
+        f'{board_ctx}{pgn_ctx}'
+    )
+
+    user_content = message
+
+    print('=== AI Chat Request ===')
+    print(f'Message: {message}')
+    print(f'FEN: {fen}')
+    print(f'PGN: {pgn}')
+    print(f'System: {system_prompt}')
+    print('======================')
+
+    try:
+        res = requests.post(
+            f'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_KEY}',
+            json={
+                'systemInstruction': {'parts': [{'text': system_prompt}]},
+                'contents': [{'parts': [{'text': user_content}]}]
+            },
+            timeout=15
+        )
+        if res.status_code == 429:
+            return jsonify({'error': '請求過於頻繁，請稍後再試'}), 429
+        res.raise_for_status()
+        reply = res.json()['candidates'][0]['content']['parts'][0]['text']
+        return jsonify({'reply': reply})
+    except requests.exceptions.Timeout:
+        return jsonify({'error': '請求逾時，請稍後再試'}), 504
+    except requests.exceptions.HTTPError as e:
+        print(f'HTTPError: {e.response.status_code} {e.response.text}')
+        return jsonify({'error': f'API 錯誤（{e.response.status_code}）'}), 500
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': '服務暫時無法使用，請稍後再試'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

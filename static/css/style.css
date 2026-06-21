@@ -131,7 +131,7 @@ header p { font-size: 0.88rem; color: var(--text-dim); letter-spacing: 0.1em; fo
 /* ── AI Chat ── */
 .ai-chat-box { display: flex; flex-direction: column; }
 .chat-messages {
-  min-height: 150px; max-height: 300px; overflow-y: auto;
+  min-height: 0; overflow-y: auto;
   display: flex; flex-direction: column; gap: 7px; margin-bottom: 9px;
   scrollbar-width: thin; scrollbar-color: var(--border-glow) transparent;
 }
@@ -331,30 +331,30 @@ header p { font-size: 0.88rem; color: var(--text-dim); letter-spacing: 0.1em; fo
   flex-direction: column;
   width: 220px;
   flex-shrink: 0;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-glow) transparent;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-left: none;
   border-radius: 0 12px 12px 0;
   padding: 10px;
-  /* height set by JS to match board-col */
+  overflow: hidden;
 }
 
 /* AI chat 撐滿右欄，輸入框貼底 */
-#ai-chat-above {
+.right-panel .panel-box.ai-chat-box {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
 }
-#ai-chat-above .chat-messages {
+.right-panel .ai-chat-box .chat-messages {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
 }
-.chat-input-row {
+.right-panel .chat-input-row {
   margin-top: auto;
   padding-top: 8px;
   flex-shrink: 0;
@@ -372,6 +372,13 @@ header p { font-size: 0.88rem; color: var(--text-dim); letter-spacing: 0.1em; fo
 .left-panel  > .panel-box:last-child,
 .right-panel > .panel-box:last-child {
   border-bottom: none;
+}
+
+.right-panel > .panel-box:last-child {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── Inline mode switcher ── */
@@ -459,7 +466,7 @@ header p { font-size: 0.88rem; color: var(--text-dim); letter-spacing: 0.1em; fo
 .save-msg.err { color: #e05050; }
 
 .load-refresh-btn { margin-bottom: 8px !important; font-size: 0.68rem !important; }
-.saved-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border-glow) transparent; }
+.saved-list { display: flex; flex-direction: column; gap: 6px; max-height: none; flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border-glow) transparent; }
 .no-saves { font-size: 0.78rem; color: var(--text-dim); font-style: italic; }
 
 .save-entry {

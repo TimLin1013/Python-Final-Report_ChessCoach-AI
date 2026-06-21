@@ -43,9 +43,6 @@ const historyEl       = document.getElementById('move-history');
 const gameoverOverlay = document.getElementById('gameover-overlay');
 const gameoverTitle   = document.getElementById('gameover-title');
 const gameoverMsg     = document.getElementById('gameover-msg');
-const chatMessages    = document.getElementById('chat-messages');
-const chatInput       = document.getElementById('chat-input');
-const chatSend        = document.getElementById('chat-send');
 const promoModal      = document.getElementById('promotion-modal');
 const promoChoices    = document.getElementById('promo-choices');
 const modeBadge       = null; // removed
@@ -69,17 +66,16 @@ document.addEventListener('DOMContentLoaded', () => {
   buildBoard();
   buildPromoButtons();
   setupModeSwitcher();
-  setupChat();
   applyConfig();
   startNewGame();
   // replay banner has no buttons; clicking pieces exits replay automatically
   document.getElementById('btn-replay-prev').addEventListener('click', () => {
     const current = state.replayIndex !== null ? state.replayIndex : state.fenHistory.length - 1;
-    enterReplay(current - 1);
+    enterReplay(current - getPlayerStepSize(current));
   });
   document.getElementById('btn-replay-next').addEventListener('click', () => {
-    if (state.replayIndex === null) return; // already at latest
-    enterReplay(state.replayIndex + 1);
+    if (state.replayIndex === null) return;
+    enterReplay(state.replayIndex + getPlayerStepSize(state.replayIndex));
   });
   matchPanelHeights();
   window.addEventListener('resize', matchPanelHeights);
@@ -119,16 +115,19 @@ function setupModeSwitcher() {
   });
 
   ['color-white','color-black','color-random'].forEach(id => {
-    document.getElementById(id).addEventListener('click', () => {
+    document.getElementById(id).addEventListener('click', async () => {
       document.querySelectorAll('.color-toggle').forEach(b => b.classList.remove('active'));
       document.getElementById(id).classList.add('active');
       if (id === 'color-white')      config.playerColor = 'white';
       else if (id === 'color-black') config.playerColor = 'black';
       else config.playerColor = Math.random() < 0.5 ? 'white' : 'black';
       applyConfigUI();
+      // 若在回放中，先回到最新局面
+      if (state.replayIndex !== null) await exitReplay();
+      // 判斷 AI 要不要下
       if (config.mode === 'ai' && !state.aiThinking
           && !['checkmate','stalemate','draw','idle'].includes(state.status)
-          && state.replayIndex === null && state.turn !== config.playerColor) {
+          && state.turn !== config.playerColor) {
         triggerAiMove();
       }
     });
@@ -185,7 +184,7 @@ function fenToPieces(fen) {
 }
 
 // Enter replay mode at a specific half-move index
-function enterReplay(halfMoveIndex) {
+async function enterReplay(halfMoveIndex) {
   const total = state.fenHistory.length - 1;
   halfMoveIndex = Math.max(0, Math.min(halfMoveIndex, total));
 
@@ -201,30 +200,58 @@ function enterReplay(halfMoveIndex) {
   const fen = state.fenHistory[halfMoveIndex];
   if (!fen) return;
 
-  // Update state.pieces and state.turn to reflect replay position
-  state.pieces = fenToPieces(fen);
-  state.turn   = fen.split(' ')[1] === 'w' ? 'white' : 'black';
-
-  // 更新 lastMove 為該步驟的移動（看前一個 FEN 的差異）
+  state.pieces   = fenToPieces(fen);
+  state.turn     = fen.split(' ')[1] === 'w' ? 'white' : 'black';
   state.lastMove = getLastMoveFromHistory(halfMoveIndex);
+
+  // 取得將軍狀態後才渲染
+  try {
+    const res = await fetch('/api/fen_status', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fen })
+    });
+    const d = await res.json();
+    state.status = d.status;
+  } catch(e) {
+    state.status = 'playing';
+  }
 
   renderBoard();
   updateReplayButtons();
   renderHistory();
 }
 
-function exitReplay() {
+async function exitReplay() {
   state.replayIndex = null;
   state.selected    = null;
   state.legalMoves  = [];
-  // Restore live pieces and turn
   const liveFen  = state.fenHistory[state.fenHistory.length - 1] || state.fen;
   state.pieces   = fenToPieces(liveFen);
   state.turn     = liveFen.split(' ')[1] === 'w' ? 'white' : 'black';
   state.lastMove = getLastMoveFromHistory(state.fenHistory.length - 1);
+  if (liveFen) {
+    try {
+      const res = await fetch('/api/fen_status', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fen: liveFen })
+      });
+      const d = await res.json();
+      state.status = d.status;
+    } catch(e) {}
+  }
   renderBoard();
   updateReplayButtons();
   renderHistory();
+}
+
+// 回傳這一步對應的跳躍步數
+// AI 模式：跳 2（跳過 AI 那步），PvP：跳 1
+// 從 idx 往前/往後找下一個「玩家走的那步」
+function getPlayerStepSize(fromIdx) {
+  if (config.mode === 'pvp') return 1;
+  // AI 模式：玩家執白 → 奇數 half-move 是玩家；執黑 → 偶數 half-move 是玩家
+  // 每 2 步跳一次（一白一黑 = 一整回合）
+  return 2;
 }
 
 function updateReplayButtons() {
@@ -245,7 +272,11 @@ async function branchFromReplay() {
 
   const res = await fetch('/api/branch', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ game_id: state.gameId, fen })
+    body: JSON.stringify({
+      game_id: state.gameId,
+      fen,
+      fen_history: state.fenHistory.slice(0, idx + 1)
+    })
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -329,7 +360,7 @@ function renderBoardFromPieces(pieces, turn, lastMove, selected, legalMoves = []
     sym.className = 'piece-sym'; sym.textContent = PIECE_SYM[piece.type];
     wrap.appendChild(sym); sq.appendChild(wrap);
   });
-  if (state.replayIndex === null && (state.status === 'check' || state.status === 'checkmate')) {
+  if (state.status === 'check' || state.status === 'checkmate') {
     for (const [key,piece] of Object.entries(pieces)) {
       if (piece.type === 6 && piece.color === turn) {
         const [r,c] = key.split(',').map(Number);
@@ -607,6 +638,7 @@ async function undoMove() {
 
 // ── AI move ────────────────────────────────────────────────────────────────
 async function triggerAiMove() {
+  if (state.replayIndex !== null) return; // 回放中不觸發 AI
   if (['checkmate','stalemate','draw'].includes(state.status)) return;
   state.aiThinking = true;
   if (aiThinkingEl) aiThinkingEl.style.display = 'flex';
@@ -683,49 +715,7 @@ document.getElementById('btn-close-result').addEventListener('click', () => {
   gameoverOverlay.classList.remove('active');
 });
 
-// ── AI Chat ────────────────────────────────────────────────────────────────
-function setupChat() {
-  chatSend.addEventListener('click', sendChat);
-  chatInput.addEventListener('keydown', e => {
-    if (e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendChat();}
-  });
-}
-function addChatMsg(role,text,isTyping=false) {
-  const div=document.createElement('div');
-  div.className=`chat-msg ${role}${isTyping?' typing':''}`;
-  const bubble=document.createElement('div');
-  bubble.className='chat-bubble'; bubble.textContent=text;
-  div.appendChild(bubble); chatMessages.appendChild(div);
-  chatMessages.scrollTop=chatMessages.scrollHeight;
-  return div;
-}
-async function sendChat() {
-  const text=chatInput.value.trim(); if(!text) return;
-  chatInput.value=''; chatSend.disabled=true;
-  addChatMsg('user',text);
-  const typingEl=addChatMsg('ai','思考中...',true);
-  const activeFen = state.replayIndex !== null ? state.fenHistory[state.replayIndex] : state.fen;
-  const boardCtx = activeFen ? `\n\n當前棋盤狀態（FEN）：${activeFen}` : '\n\n尚未開始遊戲。';
-  const histCtx  = state.movePairs.length
-    ? `\n棋譜：${state.movePairs.slice(-8).map((p,i)=>`${i+1}.${p.white} ${p.black}`).join(' ')}` : '';
-  const modeCtx  = config.mode==='ai'
-    ? `\n模式：玩家執${config.playerColor==='white'?'白':'黑'}對戰 Stockfish AI。`
-    : '\n模式：雙人對戰。';
-  const system=`你是一位國際象棋 AI 助手，用繁體中文回答。職責：走法建議、規則說明、局面分析、戰略評論。回答簡潔3-5句。${modeCtx}${boardCtx}${histCtx}`;
-  try {
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system,messages:[{role:'user',content:text}]})
-    });
-    const data=await res.json();
-    typingEl.remove();
-    addChatMsg('ai', data.content?.map(b=>b.text||'').join('')||'抱歉，無法取得回應。');
-  } catch {
-    typingEl.remove();
-    addChatMsg('ai','連線失敗，請稍後再試。');
-  }
-  chatSend.disabled=false; chatInput.focus();
-}
+
 
 // ══════════════════════════════════════════════════════════════════════════
 //  SAVE / LOAD
@@ -906,4 +896,76 @@ function rebuildFenHistory(pgn) {
   // Rebuilt server-side via /api/fen_history; this is just a placeholder
   const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
   return [startFen];
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+//  AI 棋評助手
+// ══════════════════════════════════════════════════════════════════════════
+const chatMessages = document.getElementById('chat-messages');
+const chatInput    = document.getElementById('chat-input');
+const chatSend     = document.getElementById('chat-send');
+
+document.addEventListener('DOMContentLoaded', () => {
+  chatSend.addEventListener('click', sendChat);
+  chatInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+  });
+});
+
+function addChatMsg(role, text, isTyping = false) {
+  const div    = document.createElement('div');
+  div.className = `chat-msg ${role}${isTyping ? ' typing' : ''}`;
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-bubble';
+  bubble.textContent = text;
+  div.appendChild(bubble);
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return div;
+}
+
+async function sendChat() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+  chatInput.value = '';
+  chatSend.disabled = true;
+
+  addChatMsg('user', text);
+  const typingEl = addChatMsg('ai', '思考中...', true);
+
+  // 組 PGN 字串
+  const pgn = state.movePairs
+    .map((p, i) => `${i+1}.${p.white} ${p.black}`.trim())
+    .join(' ');
+
+  // 回放模式用回放局面的 FEN，否則用 live FEN
+  const activeFen = state.replayIndex !== null
+    ? (state.fenHistory[state.replayIndex] || state.fen)
+    : state.fen;
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: text,
+        fen:     activeFen,
+        pgn:     pgn,
+        mode:    config.mode
+      })
+    });
+    const data = await res.json();
+    typingEl.remove();
+    if (!res.ok) {
+      addChatMsg('ai', `錯誤：${data.error || '無法取得回應'}`);
+    } else {
+      addChatMsg('ai', data.reply);
+    }
+  } catch (e) {
+    typingEl.remove();
+    addChatMsg('ai', '連線失敗，請稍後再試。');
+  }
+
+  chatSend.disabled = false;
+  chatInput.focus();
 }
